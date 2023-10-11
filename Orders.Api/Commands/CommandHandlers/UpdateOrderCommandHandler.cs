@@ -1,20 +1,21 @@
 using Ardalis.GuardClauses;
+using Orders.Api.Events;
 using Orders.Api.Repositories;
 
 namespace Orders.Api.Commands.CommandHandlers;
 
 public class UpdateOrderCommandHandler : ICommandHandler<UpdateOrderCommand>
 {
-    private readonly IWriteOrdersRepository _writeOrdersRepository;
+    private readonly IEventStoreRepository _eventStoreRepository;
 
-    public UpdateOrderCommandHandler(IWriteOrdersRepository writeOrdersRepository)
+    public UpdateOrderCommandHandler(IEventStoreRepository eventStoreRepository)
     {
-        _writeOrdersRepository = writeOrdersRepository;
+        _eventStoreRepository = eventStoreRepository;
     }
     public async Task HandleAsync(UpdateOrderCommand command)
     {
         Guard.Against.Null(command?.Order);
 
-        await  _writeOrdersRepository.UpdateOrderAsync(command.Order);
+        await _eventStoreRepository.PublishAsync(new OrderUpdatedEvent(command.Order));
     }
 }

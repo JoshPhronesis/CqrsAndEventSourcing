@@ -1,16 +1,17 @@
 using AutoMapper;
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Orders.Api;
 using Orders.Api.Commands;
 using Orders.Api.Commands.CommandHandlers;
 using Orders.Api.Data;
 using Orders.Api.Dtos;
-using Orders.Api.Entities;
 using Orders.Api.Queries;
 using Orders.Api.Queries.QueryHandlers;
 using Orders.Api.Repositories;
+using StackExchange.Redis;
+using Order = Orders.Api.Entities.Order;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,17 +21,34 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<IReadOrdersRepository, ReadOrdersRepository>();
 builder.Services.AddScoped<IWriteOrdersRepository, WriteOrdersRepository>();
+builder.Services.AddScoped<IEventStoreRepository, RedisEventStoreRepository>();
 builder.Services.AddCommandHandlers(typeof(Program));
 builder.Services.AddQueryHandlers(typeof(Program));
+
+builder.Services.AddEventHandlers(typeof(Program));
+builder.Services.AddSingleton<IEventListener>((provider => 
+    new EventListener(provider.GetRequiredService<IDatabase>(),
+    provider.GetRequiredService<IOptions<RedisConfig>>(),
+    provider.GetRequiredService<ILogger<EventListener>>(), 
+    provider)));
+
+builder.Services.Configure<RedisConfig>(builder.Configuration.GetSection("RedisConfig"));
+var redis = ConnectionMultiplexer.Connect(builder.Configuration.GetSection("RedisConfig:Url").Value!);
+var redisDatabase = redis.GetDatabase();
+builder.Services.AddSingleton(redisDatabase);
+
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection"));
 });
+
 var app = builder.Build();
 
 using var serviceScope = app.Services.CreateScope();
 var dbContext = serviceScope.ServiceProvider.GetRequiredService<AppDbContext>();
 await dbContext.Database.MigrateAsync();
+
+app.ListenForRedisEvents();
 
 if (app.Environment.IsDevelopment())
 {
